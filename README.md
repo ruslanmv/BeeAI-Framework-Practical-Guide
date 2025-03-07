@@ -645,15 +645,12 @@ Now that you have seen how to:
 - Configure a ReAct agent with custom and imported tools.
 
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
 For questions, discussions, or support, reach out to us via:
 
-  * Email: [support@beeai.org](mailto:support@beeai.org)
+  * Email: [contact@ruslanmv.com](mailto:contact@ruslanmv.com)
   * GitHub Discussions: [BeeAI Framework Discussions](https://www.google.com/url?sa=E&source=gmail&q=https://github.com/your-username/BeeAI-Framework-Practical-Guide/discussions)
   * Community Forum: [BeeAI Community](https://www.google.com/url?sa=E&source=gmail&q=https://community.beeai.org)
 
