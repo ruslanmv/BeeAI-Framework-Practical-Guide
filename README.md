@@ -8,7 +8,7 @@ Welcome to the BeeAI Framework! This repository is your comprehensive guide to l
 - **Structured Outputs:** Enforcing output formats with Pydantic schemas.
 - **System Prompts:** Guiding LLM behavior with system messages.
 - **ReAct Agents and Tools:** Building agents that can reason and act, including integration with external tools.
-- **Workflows:** Combining all of the above into a multi-step process, including adding memory.
+- **Workflows:** Combining all of the above into a multi-step process, including adding memory and orchestration of multi-agent systems.
 
 Below you’ll find all the code examples along with explanations.
 
@@ -104,7 +104,7 @@ prompt = search_template.render(
         results=[
             SearchResult(
                 title="France",
-                url="https://en.wikipedia.org/wiki/France",
+                url="[https://en.wikipedia.org/wiki/France](https://en.wikipedia.org/wiki/France)",
                 content="France is a country in Europe. Its capital city is Paris, known for its culture and history.",
             )
         ],
@@ -413,247 +413,1073 @@ result: BeeRunOutput = await agent.run(
 
 ---
 
-## BeeAI Workflows
+## BeeAI Workflows (Experimental)
 
-Workflows allow you to combine what you’ve learned into a coherent multi-step process. A workflow is defined by a state (a Pydantic model) and steps (Python functions) that update the state and determine the next step.
+Workflows allow you to combine what you’ve learned into a coherent multi-step process. A workflow is defined by a state (a Pydantic model) and steps (Python functions) that update the state and determine the next step. Workflows in BeeAI provide a flexible and extensible component for managing and executing structured sequences of tasks, especially useful for orchestration of complex agent behaviors and multi-agent systems.
 
-### 1. Basics of Workflows
+### Overview
 
-#### Example: A Simple One-Step Workflow
+Workflows provide a flexible and extensible component for managing and executing structured sequences of tasks. They are particularly useful for:
 
-```python
-import traceback
-from pydantic import BaseModel, ValidationError
-from beeai_framework.workflows.workflow import Workflow, WorkflowError
-
-# Define the global state for the workflow.
-class MessageState(BaseModel):
-    message: str
-
-# Define a workflow step.
-async def my_first_step(state: MessageState) -> None:
-    state.message += " World"  # Modify the state.
-    print("Running first step!")
-    return Workflow.END  # Signal the end of the workflow.
-
-try:
-    # Create the workflow.
-    basic_workflow = Workflow(schema=MessageState, name="MyWorkflow")
-    basic_workflow.add_step("my_first_step", my_first_step)
-
-    # Run the workflow.
-    basic_response = await basic_workflow.run(MessageState(message="Hello"))
-    print("State after workflow run:", basic_response.state)
-
-except WorkflowError:
-    traceback.print_exc()
-except ValidationError:
-    traceback.print_exc()
-```
+- 🔄 **Dynamic Execution**: Steps can direct the flow based on state or results
+- ✅ **Validation**: Define schemas for data consistency and type safety
+- 🧩 **Modularity**: Steps can be standalone or invoke nested workflows
+- 👁️ **Observability**: Emit events during execution to track progress or handle errors
 
 ---
 
-### 2. A Multi-Step Workflow with Tools
+### Core Concepts
 
-This example builds a web search agent that:
-- Generates a search query from a question.
-- Uses a web search tool to fetch results.
-- Uses the search results to generate an answer.
+#### State
 
-#### Setup: Import and State Definition
+State is the central data structure in a workflow. It's a Pydantic model that:
+- Holds the data passed between steps
+- Provides type validation and safety
+- Persists throughout the workflow execution
+
+#### Steps
+
+Steps are the building blocks of a workflow. Each step is a function that:
+- Takes the current state as input
+- Can modify the state
+- Returns the name of the next step to execute or a special reserved value
+
+#### Transitions
+
+Transitions determine the flow of execution between steps. Each step returns either:
+- The name of the next step to execute
+- `Workflow.NEXT` - proceed to the next step in order
+- `Workflow.SELF` - repeat the current step
+- `Workflow.END` - end the workflow execution
+
+---
+
+### Basic Usage
+
+#### Simple Workflow
+
+The example below demonstrates a minimal workflow that processes steps in sequence. This pattern is useful for straightforward, linear processes where each step builds on the previous one.
 
 ```python
-from langchain_community.utilities import SearxSearchWrapper
-from pydantic import Field
-from beeai_framework.backend.chat import ChatModel, ChatModelOutput, ChatModelStructureOutput
+import asyncio
+import sys
+import traceback
+
+from pydantic import BaseModel
+
+from beeai_framework.errors import FrameworkError
+from beeai_framework.workflows.workflow import Workflow
+
+
+async def main() -> None:
+    # State
+    class State(BaseModel):
+        input: str
+
+    workflow = Workflow(State)
+    workflow.add_step("first", lambda state: print("Running first step!"))
+    workflow.add_step("second", lambda state: print("Running second step!"))
+    workflow.add_step("third", lambda state: print("Running third step!"))
+
+    await workflow.run(State(input="Hello"))
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+#### Multi-Step Workflow
+
+This advanced example showcases a workflow that implements multiplication through repeated addition—demonstrating control flow, state manipulation, nesting, and conditional logic.
+
+```python
+import asyncio
+import sys
+import traceback
+from typing import Literal, TypeAlias
+
+from pydantic import BaseModel
+
+from beeai_framework.errors import FrameworkError
+from beeai_framework.workflows.workflow import Workflow, WorkflowReservedStepName
+
+WorkflowStep: TypeAlias = Literal["pre_process", "add_loop", "post_process"]
+
+
+async def main() -> None:
+    # State
+    class State(BaseModel):
+        x: int
+        y: int
+        abs_repetitions: int | None = None
+        result: int | None = None
+
+    def pre_process(state: State) -> WorkflowStep:
+        print("pre_process")
+        state.abs_repetitions = abs(state.y)
+        return "add_loop"
+
+    def add_loop(state: State) -> WorkflowStep | WorkflowReservedStepName:
+        if state.abs_repetitions and state.abs_repetitions > 0:
+            result = (state.result if state.result is not None else 0) + state.x
+            abs_repetitions = (state.abs_repetitions if state.abs_repetitions is not None else 0) - 1
+            print(f"add_loop: intermediate result {result}")
+            state.abs_repetitions = abs_repetitions
+            state.result = result
+            return Workflow.SELF
+        else:
+            return "post_process"
+
+    def post_process(state: State) -> WorkflowReservedStepName:
+        print("post_process")
+        if state.y < 0:
+            result = -(state.result if state.result is not None else 0)
+            state.result = result
+        return Workflow.END
+
+    multiplication_workflow = Workflow[State, WorkflowStep](name="MultiplicationWorkflow", schema=State)
+    multiplication_workflow.add_step("pre_process", pre_process)
+    multiplication_workflow.add_step("add_loop", add_loop)
+    multiplication_workflow.add_step("post_process", post_process)
+
+    response = await multiplication_workflow.run(State(x=8, y=5))
+    print(f"result: {response.state.result}")
+
+    response = await multiplication_workflow.run(State(x=8, y=-5))
+    print(f"result: {response.state.result}")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+This workflow demonstrates several powerful concepts:
+- Implementing loops by returning `Workflow.SELF`
+- Conditional transitions between steps
+- Progressive state modification to accumulate results
+- Sign handling through state transformation
+- Type-safe step transitions using Literal types
+
+---
+
+### Advanced Features
+
+#### Workflow Nesting
+
+Workflow nesting allows complex behaviors to be encapsulated as reusable components, enabling hierarchical composition of workflows. This promotes modularity, reusability, and better organization of complex agent logic.
+
+```python
+import asyncio
+import sys
+import traceback
+from typing import Literal, TypeAlias
+
+from pydantic import BaseModel
+
+from beeai_framework.errors import FrameworkError
+from beeai_framework.workflows.workflow import Workflow, WorkflowReservedStepName
+
+WorkflowStep: TypeAlias = Literal["pre_process", "add_loop", "post_process"]
+
+
+async def main() -> None:
+    # State
+    class State(BaseModel):
+        x: int
+        y: int
+        abs_repetitions: int | None = None
+        result: int | None = None
+
+    def pre_process(state: State) -> WorkflowStep:
+        print("pre_process")
+        state.abs_repetitions = abs(state.y)
+        return "add_loop"
+
+    def add_loop(state: State) -> WorkflowStep | WorkflowReservedStepName:
+        if state.abs_repetitions and state.abs_repetitions > 0:
+            result = (state.result if state.result is not None else 0) + state.x
+            abs_repetitions = (state.abs_repetitions if state.abs_repetitions is not None else 0) - 1
+            print(f"add_loop: intermediate result {result}")
+            state.abs_repetitions = abs_repetitions
+            state.result = result
+            return Workflow.SELF
+        else:
+            return "post_process"
+
+    def post_process(state: State) -> WorkflowReservedStepName:
+        print("post_process")
+        if state.y < 0:
+            result = -(state.result if state.result is not None else 0)
+            state.result = result
+        return Workflow.END
+
+    multiplication_workflow = Workflow[State, WorkflowStep](name="MultiplicationWorkflow", schema=State)
+    multiplication_workflow.add_step("pre_process", pre_process)
+    multiplication_workflow.add_step("add_loop", add_loop)
+    multiplication_workflow.add_step("post_process", post_process)
+
+    response = await multiplication_workflow.run(State(x=8, y=5))
+    print(f"result: {response.state.result}")
+
+    response = await multiplication_workflow.run(State(x=8, y=-5))
+    print(f"result: {response.state.result}")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+#### Multi-Agent Workflows: Orchestration with BeeAI
+
+The multi-agent workflow pattern enables the orchestration of specialized agents that collaborate to solve complex problems. Each agent focuses on a specific domain or capability, with results combined by a coordinator agent.  BeeAI Framework's workflow engine is perfectly suited for creating sophisticated multi-agent systems.
+
+The following example demonstrates how to orchestrate a multi-agent system using BeeAI workflows with Ollama backend. We will create a "Smart assistant" workflow composed of three specialized agents: `WeatherForecaster`, `Researcher`, and `Solver`.
+
+```python
+import asyncio
+import sys
+import traceback
+
+from beeai_framework.agents.types import AgentExecutionConfig
+from beeai_framework.backend.chat import ChatModel
 from beeai_framework.backend.message import UserMessage
-from beeai_framework.utils.templates import PromptTemplate
+from beeai_framework.errors import FrameworkError
+from beeai_framework.memory import UnconstrainedMemory
+from beeai_framework.tools.search.duckduckgo import DuckDuckGoSearchTool
+from beeai_framework.tools.weather.openmeteo import OpenMeteoTool
+from beeai_framework.workflows.agent import AgentWorkflow
 
-# Define the workflow state.
-class SearchAgentState(BaseModel):
-    question: str
-    search_results: str | None = None
-    answer: str | None = None
-```
 
-#### Create the ChatModel and Web Search Tool
+async def main() -> None:
+    llm = ChatModel.from_name("ollama:granite3.1-dense:8b")
 
-```python
-# Create a ChatModel instance.
-model = ChatModel.from_name("ollama:granite3.1-dense:8b")
-
-# Create a web search tool (requires a running local SearXNG instance).
-search_tool = SearxSearchWrapper(searx_host="http://127.0.0.1:8888")
-```
-
-#### Define Templates and Output Schema
-
-```python
-# Input schemas for the templates.
-class QuestionInput(BaseModel):
-    question: str
-
-class SearchRAGInput(BaseModel):
-    question: str
-    search_results: str
-
-# Template to convert a question into a search query.
-search_query_template = PromptTemplate(
-    schema=QuestionInput,
-    template="""Convert the following question into a concise, effective web search query using keywords and operators for accuracy.
-Question: {{question}}""",
-)
-
-# Template to generate an answer from search results.
-search_rag_template = PromptTemplate(
-    schema=SearchRAGInput,
-    template="""Search results:
-{{search_results}}
-
-Question: {{question}}
-Provide a concise answer based on the search results provided. If the results are irrelevant or insufficient, say 'I don't know.' Avoid phrases such as 'According to the results...'.""",
-)
-
-# Define the structured output for the search query.
-class WebSearchQuery(BaseModel):
-    query: str = Field(description="The web search query.")
-```
-
-#### Define Workflow Steps
-
-**Step 1: Web Search**
-
-```python
-async def web_search(state: SearchAgentState) -> str:
-    print("Step: ", "web_search")
-    # Generate a search query using the template.
-    prompt = search_query_template.render(QuestionInput(question=state.question))
-    response: ChatModelStructureOutput = await model.create_structure(
-        {
-            "schema": WebSearchQuery,
-            "messages": [UserMessage(prompt)],
-        }
+    workflow = AgentWorkflow(name="Smart assistant")
+    workflow.add_agent(
+        name="WeatherForecaster",
+        instructions="You are a weather assistant. Use tools to provide weather information.",
+        tools=[OpenMeteoTool()],
+        llm=llm,
+        execution=AgentExecutionConfig(max_iterations=3, total_max_retries=10, max_retries_per_step=3),
     )
-    # Run the web search and store the results.
-    state.search_results = search_tool.run(response.object["query"])
-    return "generate_answer"  # Transition to the next step.
-```
-
-**Step 2: Generate Answer**
-
-```python
-async def generate_answer(state: SearchAgentState) -> str:
-    print("Step: ", "generate_answer")
-    # Generate an answer using the search results.
-    prompt = search_rag_template.render(
-        SearchRAGInput(question=state.question, search_results=state.search_results or "No results available.")
+    workflow.add_agent(
+        name="Researcher",
+        instructions="You are a researcher assistant. Use search tools to find information.",
+        tools=[DuckDuckGoSearchTool()],
+        llm=llm,
     )
-    output: ChatModelOutput = await model.create({"messages": [UserMessage(prompt)]})
-    state.answer = output.get_text_content()  # Store the answer.
-    return Workflow.END  # End the workflow.
+    workflow.add_agent(
+        name="Solver",
+        instructions="""Your task is to provide the most useful final answer based on the assistants'
+responses which all are relevant. Ignore those where assistant do not know.""",
+        llm=llm,
+    )
+
+    prompt = "What is the weather in New York?"
+    memory = UnconstrainedMemory()
+    await memory.add(UserMessage(content=prompt))
+    response = await workflow.run(messages=memory.messages)
+    print(f"result (Ollama Backend): {response.state.final_answer}")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
 ```
 
-#### Define and Run the Workflow
+This pattern demonstrates:
+
+- **Role specialization** through focused agent configuration. `WeatherForecaster` is designed specifically for weather-related queries, while `Researcher` is for general information retrieval.
+- **Efficient tool distribution** to relevant specialists. The `WeatherForecaster` agent is equipped with the `OpenMeteoTool`, and `Researcher` with `DuckDuckGoSearchTool`, ensuring each agent has the right tools for its job.
+- **Parallel processing** of different aspects of a query.  Although not explicitly parallel in this example, the workflow structure is designed to easily support parallel execution of agents if needed.
+- **Synthesis of multiple expert perspectives** into a cohesive response. The `Solver` agent acts as a coordinator, taking responses from other agents and synthesizing them into a final answer.
+- **Declarative agent configuration** using the `AgentWorkflow` and `add_agent` methods, which simplifies the setup and management of complex agent systems.
+
+**Orchestration with Watsonx.ai Backend**
+
+To demonstrate the versatility of BeeAI workflows, let's adapt the multi-agent workflow example to use Watsonx.ai as the backend LLM provider. First, ensure you have configured the Watsonx provider as described in the Backend section. Then, modify the `ChatModel.from_name` call to use a Watsonx model:
 
 ```python
+import asyncio
+import sys
 import traceback
 
-try:
-    # Define the workflow and add steps.
-    search_agent_workflow = Workflow(schema=SearchAgentState, name="WebSearchAgent")
-    search_agent_workflow.add_step("web_search", web_search)
-    search_agent_workflow.add_step("generate_answer", generate_answer)
+from beeai_framework.agents.types import AgentExecutionConfig
+from beeai_framework.backend.chat import ChatModel
+from beeai_framework.backend.message import UserMessage
+from beeai_framework.errors import FrameworkError
+from beeai_framework.memory import UnconstrainedMemory
+from beeai_framework.tools.search.duckduckgo import DuckDuckGoSearchTool
+from beeai_framework.tools.weather.openmeteo import OpenMeteoTool
+from beeai_framework.workflows.agent import AgentWorkflow
 
-    # Execute the workflow with a sample question.
-    search_response = await search_agent_workflow.run(
-        SearchAgentState(question="What is the term for a baby hedgehog?")
+async def main() -> None:
+    # Initialize Watsonx ChatModel
+    llm = ChatModel.from_name("watsonx:ibm/granite-3-8b-instruct") # Replace with your Watsonx model
+
+    workflow = AgentWorkflow(name="Smart assistant (Watsonx)")
+    workflow.add_agent(
+        name="WeatherForecaster",
+        instructions="You are a weather assistant.",
+        tools=[OpenMeteoTool()],
+        llm=llm,
+        execution=AgentExecutionConfig(max_iterations=3, total_max_retries=10, max_retries_per_step=3),
+    )
+    workflow.add_agent(
+        name="Researcher",
+        instructions="You are a researcher assistant.",
+        tools=[DuckDuckGoSearchTool()],
+        llm=llm,
+    )
+    workflow.add_agent(
+        name="Solver",
+        instructions="""Your task is to provide the most useful final answer based on the assistants'
+responses which all are relevant. Ignore those where assistant do not know.""",
+        llm=llm,
     )
 
-    print("*****")
-    print("Question: ", search_response.state.question)
-    print("Answer: ", search_response.state.answer)
+    prompt = "What is the weather in London?"
+    memory = UnconstrainedMemory()
+    await memory.add(UserMessage(content=prompt))
+    response = await workflow.run(messages=memory.messages)
+    print(f"result (Watsonx Backend): {response.state.final_answer}")
 
-except WorkflowError:
-    traceback.print_exc()
-except ValidationError:
-    traceback.print_exc()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
 ```
+In this modified example, we simply changed the `ChatModel.from_name` call to `watsonx:ibm/granite-3-8b-instruct`.  Assuming you have correctly set up your Watsonx environment variables, this code will now orchestrate the same multi-agent workflow but powered by Watsonx.ai. This highlights the provider-agnostic nature of BeeAI workflows, allowing you to easily switch between different LLM backends without significant code changes.
 
----
+#### Memory in Workflows
 
-### 3. Adding Memory to a Workflow Agent
-
-To create a conversational agent that remembers previous interactions, you can integrate memory into your workflow.
-
-#### Example: A Chat Workflow with Memory
+Integrating memory into workflows allows agents to maintain context across interactions, enabling conversational interfaces and stateful processing. This example demonstrates a simple conversational echo workflow with persistent memory.
 
 ```python
-from pydantic import InstanceOf
-from beeai_framework.backend.message import AssistantMessage, SystemMessage
+import asyncio
+import sys
+import traceback
+
+from pydantic import BaseModel, InstanceOf
+
+from beeai_framework.backend.message import AssistantMessage, UserMessage
+from beeai_framework.errors import FrameworkError
 from beeai_framework.memory.unconstrained_memory import UnconstrainedMemory
+from beeai_framework.workflows.workflow import Workflow
+from examples.helpers.io import ConsoleReader
 
-# Define a state that holds a memory instance.
-class ChatState(BaseModel):
-    memory: InstanceOf[UnconstrainedMemory]
-    output: str | None = None
 
-# Define a workflow step that sends all messages in memory to the model.
-async def chat(state: ChatState) -> str:
-    output: ChatModelOutput = await model.create({"messages": state.memory.messages})
-    state.output = output.get_text_content()
-    return Workflow.END
+async def main() -> None:
+    # State with memory
+    class State(BaseModel):
+        memory: InstanceOf[UnconstrainedMemory]
+        output: str | None = None
 
-# Create a memory instance and add an initial system message.
-memory = UnconstrainedMemory()
-await memory.add(SystemMessage(content="You are a helpful and friendly AI assistant."))
+    async def echo(state: State) -> str:
+        # Get the last message in memory
+        last_message = state.memory.messages[-1]
+        state.output = last_message.text[::-1]
+        return Workflow.END
 
-try:
-    # Define a workflow that uses memory.
-    chat_workflow = Workflow(ChatState)
-    chat_workflow.add_step("chat", chat)
-    chat_workflow.add_step("generate_answer", generate_answer)  # Reusing our previous answer generator.
+    reader = ConsoleReader()
 
-    # Run an interactive loop.
-    while True:
-        user_input = input("User (type 'exit' to stop): ")
-        if user_input == "exit":
-            break
-        # Add the user's message to memory.
-        await memory.add(UserMessage(content=user_input))
-        # Run the workflow with the current memory.
-        response = await chat_workflow.run(ChatState(memory=memory))
-        # Add the assistant's response to memory.
+    memory = UnconstrainedMemory()
+    workflow = Workflow(State)
+    workflow.add_step("echo", echo)
+
+    for prompt in reader:
+        # Add user message to memory
+        await memory.add(UserMessage(content=prompt))
+        # Run workflow with memory
+        response = await workflow.run(State(memory=memory))
+        # Add assistant response to memory
         await memory.add(AssistantMessage(content=response.state.output))
-        print("Assistant: ", response.state.output)
 
-except WorkflowError:
-    traceback.print_exc()
-except ValidationError:
-    traceback.print_exc()
+        reader.write("Assistant 🤖 : ", response.state.output)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
 ```
+
+This pattern demonstrates:
+- Integration of memory as a first-class citizen in workflow state
+- Conversation loops that preserve context across interactions
+- Bidirectional memory updating (reading recent messages, storing responses)
+- Clean separation between the persistent memory and workflow-specific state
 
 ---
 
-## Next Steps
+## ⚙️ Backend
 
-Now that you have seen how to:
-- Create prompt templates and render them dynamically.
-- Interact with language models using ChatModel.
-- Maintain conversation history with memory.
-- Build structured output responses.
-- Build a multi-step workflow (with and without memory).
-- Configure a ReAct agent with custom and imported tools.
+## Table of Contents
+- [Overview](#overview)
+- [Supported Providers](#supported-providers)
+- [Backend Initialization](#backend-initialization)
+- [Chat Model](#chat-model)
+  - [Chat Model Configuration](#chat-model-configuration)
+  - [Text Generation](#text-generation)
+  - [Streaming Responses](#streaming-responses)
+  - [Structured Generation](#structured-generation)
+  - [Tool Calling](#tool-calling)
+- [Embedding Model](#embedding-model)
+  - [Embedding Model Configuration](#embedding-model-configuration)
+  - [Embedding Model Usage](#embedding-model-usage)
+- [Troubleshooting](#troubleshooting)
+- [Examples](#examples)
+---
+
+## Overview
+
+Backend is an umbrella module that encapsulates a unified way to work with the following functionalities:
+
+- Chat Models via (ChatModel class)
+- Embedding Models (coming soon)
+- Audio Models (coming soon)
+- Image Models (coming soon)
+
+BeeAI framework's backend is designed with a provider-based architecture, allowing you to switch between different AI service providers while maintaining a consistent API.
+
+> [!NOTE]
+>
+> Location within the framework: [beeai_framework/backend](/python/beeai_framework/backend).
+
+---
+
+## Supported providers
+
+The following table depicts supported providers. Each provider requires specific configuration through environment variables. Ensure all required variables are set before initializing a provider.
+
+| Name             | Chat | Embedding | Dependency               | Environment Variables                                                                                                                                                 |
+| ---------------- | :--: | :-------: | ------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ollama         |  ✅  |          | ollama-ai-provider     | OLLAMA_CHAT_MODEL<br/>OLLAMA_BASE_URL                                                                                                       |
+| OpenAI         |  ✅  |          | openai     | OPENAI_CHAT_MODEL<br/>OPENAI_API_BASE<br/>OPENAI_API_KEY<br/>OPENAI_ORGANIZATION                                                                                                       |
+| Watsonx        |  ✅  |          | @ibm-cloud/watsonx-ai  | WATSONX_CHAT_MODEL<br/>WATSONX_EMBEDDING_MODEL<br>WATSONX_API_KEY<br/>WATSONX_PROJECT_ID<br/>WATSONX_SPACE_ID<br>WATSONX_VERSION<br>WATSONX_REGION                    |
+| Groq           |  ✅  |         | | GROQ_CHAT_MODEL<br>GROQ_API_KEY |
+| Amazon Bedrock |  ✅  |         |  boto3| AWS_CHAT_MODEL<br>AWS_ACCESS_KEY_ID<br>AWS_SECRET_ACCESS_KEY<br>AWS_REGION_NAME |
+| Google Vertex  |  ✅  |         |  | VERTEXAI_CHAT_MODEL<br>VERTEXAI_PROJECT<br>GOOGLE_APPLICATION_CREDENTIALS<br>GOOGLE_APPLICATION_CREDENTIALS_JSON<br>GOOGLE_CREDENTIALS |
+| Azure OpenAI   |    |         | Coming soon! | AZURE_OPENAI_CHAT_MODEL<br>AZURE_OPENAI_EMBEDDING_MODEL<br>AZURE_OPENAI_API_KEY<br>AZURE_OPENAI_API_ENDPOINT<br>AZURE_OPENAI_API_RESOURCE<br>AZURE_OPENAI_API_VERSION |
+| Anthropic      |  ✅  |         |  | ANTHROPIC_CHAT_MODEL<br>ANTHROPIC_API_KEY |
+| xAI           |  ✅  |         | | XAI_CHAT_MODEL<br>XAI_API_KEY |
+
+
+> [!TIP]
+>
+> If you don't see your provider raise an issue [here](https://github.com/i-am-bee/beeai-framework/discussions). Meanwhile, you can use [Ollama adapter](/python/examples/backend/providers/ollama.py).
+
+---
+
+### Backend initialization
+
+The Backend class serves as a central entry point to access models from your chosen provider.
+
+**Watsonx Initialization**
+
+To use Watsonx with BeeAI framework, you need to install the Watsonx adapter and set up your environment variables.
+
+**Installation:**
+
+```bash
+pip install beeai-framework[watsonx]
+```
+
+**Environment Variables:**
+
+Set the following environment variables. You can obtain these from your IBM Cloud account and Watsonx service instance.
+
+- `WATSONX_API_KEY`: Your Watsonx API key.
+- `WATSONX_PROJECT_ID`: Your Watsonx project ID.
+- `WATSONX_REGION`: The region where your Watsonx service is deployed (e.g., `us-south`).
+- `WATSONX_CHAT_MODEL`: The specific Watsonx chat model you want to use (e.g., `ibm/granite-3-8b-instruct`).
+
+**Example Code:**
+
+Here's how to initialize and use Watsonx ChatModel:
+
+```python
+import asyncio
+import json
+import sys
+import traceback
+
+from pydantic import BaseModel, Field
+
+from beeai_framework import ToolMessage
+from beeai_framework.adapters.watsonx.backend.chat import WatsonxChatModel
+from beeai_framework.backend.chat import ChatModel
+from beeai_framework.backend.message import MessageToolResultContent, UserMessage
+from beeai_framework.cancellation import AbortSignal
+from beeai_framework.errors import AbortError, FrameworkError
+from beeai_framework.tools.weather.openmeteo import OpenMeteoTool
+
+# Setting can be passed here during initiation or pre-configured via environment variables
+llm = WatsonxChatModel(
+    "ibm/granite-3-8b-instruct",
+    # settings={
+    #     "project_id": "WATSONX_PROJECT_ID",
+    #     "api_key": "WATSONX_API_KEY",
+    #     "api_base": "WATSONX_API_URL",
+    # },
+)
+
+
+async def watsonx_from_name() -> None:
+    watsonx_llm = ChatModel.from_name(
+        "watsonx:ibm/granite-3-8b-instruct",
+        # {
+        #     "project_id": "WATSONX_PROJECT_ID",
+        #     "api_key": "WATSONX_API_KEY",
+        #     "api_base": "WATSONX_API_URL",
+        # },
+    )
+    user_message = UserMessage("what states are part of New England?")
+    response = await watsonx_llm.create(messages=[user_message])
+    print(response.get_text_content())
+
+
+async def watsonx_sync() -> None:
+    user_message = UserMessage("what is the capital of Massachusetts?")
+    response = await llm.create(messages=[user_message])
+    print(response.get_text_content())
+
+
+async def watsonx_stream() -> None:
+    user_message = UserMessage("How many islands make up the country of Cape Verde?")
+    response = await llm.create(messages=[user_message], stream=True)
+    print(response.get_text_content())
+
+
+async def watsonx_stream_abort() -> None:
+    user_message = UserMessage("What is the smallest of the Cape Verde islands?")
+
+    try:
+        response = await llm.create(messages=[user_message], stream=True, abort_signal=AbortSignal.timeout(0.5))
+
+        if response is not None:
+            print(response.get_text_content())
+        else:
+            print("No response returned.")
+    except AbortError as err:
+        print(f"Aborted: {err}")
+
+
+async def watson_structure() -> None:
+    class TestSchema(BaseModel):
+        answer: str = Field(description="your final answer")
+
+    user_message = UserMessage("How many islands make up the country of Cape Verde?")
+    response = await llm.create_structure(schema=TestSchema, messages=[user_message])
+    print(response.object)
+
+
+async def watson_tool_calling() -> None:
+    watsonx_llm = ChatModel.from_name(
+        "watsonx:ibm/granite-3-8b-instruct",
+    )
+    user_message = UserMessage("What is the current weather in Boston?")
+    weather_tool = OpenMeteoTool()
+    response = await watsonx_llm.create(messages=[user_message], tools=[weather_tool])
+    tool_call_msg = response.get_tool_calls()[0]
+    print(tool_call_msg.model_dump())
+    tool_response = await weather_tool.run(json.loads(tool_call_msg.args))
+    tool_response_msg = ToolMessage(
+        MessageToolResultContent(
+            result=tool_response.get_text_content(), tool_name=tool_call_msg.tool_name, tool_call_id=tool_call_msg.id
+        )
+    )
+    print(tool_response_msg.to_plain())
+    final_response = await watsonx_llm.create(messages=[user_message, tool_response_msg], tools=[])
+    print(final_response.get_text_content())
+
+
+async def main() -> None:
+    print("*" * 10, "watsonx_from_name")
+    await watsonx_from_name()
+    print("*" * 10, "watsonx_sync")
+    await watsonx_sync()
+    print("*" * 10, "watsonx_stream")
+    await watsonx_stream()
+    print("*" * 10, "watsonx_stream_abort")
+    await watsonx_stream_abort()
+    print("*" * 10, "watson_structure")
+    await watson_structure()
+    print("*" * 10, "watson_tool_calling")
+    await watson_tool_calling()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+All providers examples can be found in [examples/backend/providers](/examples/backend/providers).
+
+---
+
+## Chat model
+
+The ChatModel class represents a Chat Large Language Model and provides methods for text generation, streaming responses, and more. You can initialize a chat model in multiple ways:
+
+**Method 1: Using the generic factory method**
+
+```python
+from beeai_framework.backend.chat import ChatModel
+
+ollama_chat_model = ChatModel.from_name("ollama:llama3.1")
+```
+
+**Method 2: Creating a specific provider model directly**
+
+```python
+from beeai_framework.adapters.ollama.backend.chat import OllamaChatModel
+
+ollama_chat_model = OllamaChatModel("llama3.1")
+```
+
+### Chat model configuration
+
+You can configure various parameters for your chat model:
+
+*Coming soon*
+
+### Text generation
+
+The most basic usage is to generate text responses:
+
+```python
+from beeai_framework.adapters.ollama.backend.chat import OllamaChatModel
+from beeai_framework.backend.message import UserMessage
+
+ollama_chat_model = OllamaChatModel("llama3.1")
+response = await ollama_chat_model.create(
+    messages=[UserMessage("what states are part of New England?")]
+)
+
+print(response.get_text_content())
+```
+
+> [!NOTE]
+>
+> Execution parameters (those passed to model.create({...})) are superior to ones defined via config.
+
+### Streaming responses
+
+For applications requiring real-time responses:
+
+```python
+from beeai_framework.adapters.ollama.backend.chat import OllamaChatModel
+from beeai_framework.backend.message import UserMessage
+
+llm = OllamaChatModel("llama3.1")
+user_message = UserMessage("How many islands make up the country of Cape Verde?")
+response = await llm.create(messages=[user_message], stream=True)
+```
+
+### Structured generation
+
+Generate structured data according to a schema:
+
+```python
+import asyncio
+import json
+import sys
+import traceback
+
+from pydantic import BaseModel, Field
+
+from beeai_framework import UserMessage
+from beeai_framework.backend.chat import ChatModel
+from beeai_framework.errors import FrameworkError
+
+
+async def main() -> None:
+    model = ChatModel.from_name("ollama:llama3.1")
+
+    class ProfileSchema(BaseModel):
+        first_name: str = Field(..., min_length=1)
+        last_name: str = Field(..., min_length=1)
+        address: str
+        age: int = Field(..., min_length=1)
+        hobby: str
+
+    class ErrorSchema(BaseModel):
+        error: str
+
+    class SchemUnion(ProfileSchema, ErrorSchema):
+        pass
+
+    response = await model.create_structure(
+        schema=SchemUnion,
+        messages=[UserMessage("Generate a profile of a citizen of Europe.")],
+    )
+
+    print(
+        json.dumps(
+            response.object.model_dump() if isinstance(response.object, BaseModel) else response.object, indent=4
+        )
+    )
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+### Tool calling
+
+Integrate external tools with your AI model:
+
+```python
+import asyncio
+import json
+import re
+import sys
+import traceback
+
+from beeai_framework import Message, SystemMessage, Tool, ToolMessage, UserMessage
+from beeai_framework.backend.chat import ChatModel, ChatModelParameters
+from beeai_framework.backend.message import MessageToolResultContent
+from beeai_framework.errors import FrameworkError
+from beeai_framework.tools import ToolOutput
+from beeai_framework.tools.search import DuckDuckGoSearchTool
+from beeai_framework.tools.weather.openmeteo import OpenMeteoTool
+
+
+async def main() -> None:
+    model = ChatModel.from_name("ollama:llama3.1", ChatModelParameters(temperature=0))
+    tools: list[Tool] = [DuckDuckGoSearchTool(), OpenMeteoTool()]
+    messages: list[Message] = [
+        SystemMessage("You are a helpful assistant. Use tools to provide a correct answer."),
+        UserMessage("What's the fastest marathon time?"),
+    ]
+
+    while True:
+        response = await model.create(
+            messages=messages,
+            tools=tools,
+        )
+
+        tool_calls = response.get_tool_calls()
+
+        tool_results: list[ToolMessage] = []
+
+        for tool_call in tool_calls:
+            print(f"-> running '{tool_call.tool_name}' tool with {tool_call.args}")
+            tool: Tool = next(tool for tool in tools if tool.name == tool_call.tool_name)
+            assert tool is not None
+            res: ToolOutput = await tool.run(json.loads(tool_call.args))
+            result = res.get_text_content()
+            print(f"<- got response from '{tool_call.tool_name}'", re.sub(r"\s+", " ", result)[:90] + " (truncated)")
+            tool_results.append(
+                ToolMessage(
+                    MessageToolResultContent(
+                        result=result,
+                        tool_name=tool_call.tool_name,
+                        tool_call_id=tool_call.id,
+                    )
+                )
+            )
+
+        messages.extend(tool_results)
+
+        answer = response.get_text_content()
+
+        if answer:
+            print(f"Agent: {answer}")
+            break
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+---
+## Embedding model
+
+The `EmbedingModel` class provides functionality for generating vector embeddings from text.
+
+### Embedding model initialization
+
+You can initialize an embedding model in multiple ways:
+
+#### Method 1: Using the generic factory method
+
+The most straightforward way to initialize an embedding model is using the `EmbeddingModel.from_name()` factory method. This method automatically handles the creation of the appropriate provider-specific model based on the name you provide. BeeAI Framework supports various providers out of the box, and this method simplifies their instantiation.
+
+```python
+from beeai_framework.backend.embedding import EmbeddingModel
+
+async def factory_method_example():
+    # Initialize an embedding model from Ollama (ensure Ollama is running)
+    ollama_embedding_model = EmbeddingModel.from_name("ollama:nomic-embed-text")
+    print(f"Provider ID: {ollama_embedding_model.provider_id}") # Output: ollama
+    print(f"Model ID: {ollama_embedding_model.model_id}") # Output: nomic-embed-text
+
+    # Initialize an embedding model from Watsonx (ensure Watsonx credentials are configured)
+    watsonx_embedding_model = EmbeddingModel.from_name("watsonx:ibm/granite-embedding-107m-multilingual")
+    print(f"Provider ID: {watsonx_embedding_model.provider_id}") # Output: watsonx
+    print(f"Model ID: {watsonx_embedding_model.model_id}") # Output: ibm/granite-embedding-107m-multilingual
+
+await factory_method_example()
+```
+
+#### Method 2: Creating a specific provider model directly
+
+For more granular control or when you need to configure provider-specific parameters, you can directly instantiate the embedding model class for your chosen provider. This method allows you to pass in specific configurations as needed.
+
+```python
+from beeai_framework.adapters.openai.embedding import OpenAIEmbeddingModel
+
+async def direct_provider_example():
+    # Initialize OpenAI Embedding Model directly
+    openai_embedding_model = OpenAIEmbeddingModel(
+        model_id="text-embedding-3-small",
+        config={
+            "dimensions": 512, # Optional: Specify embedding dimensions
+            "max_embeddings_per_call": 5, # Optional: Limit embeddings per API call
+        },
+        provider_options={ # Optional: Provider-specific options like custom endpoint, API keys etc.
+            # "base_url": "your_custom_endpoint", # Uncomment and set your custom endpoint if needed
+            # "api_key": "YOUR_OPENAI_API_KEY", # Uncomment and set your OpenAI API key if not using env vars
+            "compatibility": "openai", # Ensure compatibility setting if using custom endpoints
+            # "headers": {"CUSTOM_HEADER": "..."}, # Add custom headers if required
+        },
+    )
+    print(f"Provider ID: {openai_embedding_model.provider_id}") # Output: openai
+    print(f"Model ID: {openai_embedding_model.model_id}") # Output: text-embedding-3-small
+
+await direct_provider_example()
+```
+
+### Embedding model usage
+
+Generate embeddings for one or more text strings using the `create` method. This method accepts a list of text strings in the `values` parameter and returns an `EmbeddingResponse` object containing the generated embeddings.
+
+```python
+from beeai_framework.backend.embedding import EmbeddingModel
+
+async def embedding_usage_example():
+    # Initialize Ollama Embedding Model using factory method
+    embedding_model = EmbeddingModel.from_name("ollama:nomic-embed-text")
+
+    # Generate embeddings for a list of text strings
+    response = await embedding_model.create(values=["Hello world!", "Hello Bee!"])
+
+    print("Original Texts:", response.values)
+    print("Generated Embeddings:", response.embeddings) # Embeddings will be a list of lists (vectors)
+    print("Provider ID:", response.provider_id)
+    print("Model ID:", response.model_id)
+
+await embedding_usage_example()
+```
+
+### Advanced usage
+
+If your preferred provider isn't directly supported, you can use the LangChain adapter as a bridge.
+This allows you to leverage any provider that has LangChain compatibility, extending BeeAI Framework's reach significantly.
+
+```python
+import asyncio
+import pathlib
+import random
+import sys
+import traceback
+
+import langchain
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.tools.file_management.list_dir import ListDirectoryTool
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+
+from beeai_framework.adapters.langchain.embedding import LangChainEmbeddingModel
+from beeai_framework.adapters.langchain.tools import LangChainTool
+from beeai_framework.errors import FrameworkError
+
+async def huggingface_embedding_model() -> None:
+    """
+    Example demonstrating the usage of a HuggingFace embedding model via LangChain adapter.
+    """
+    hf_embeddings = HuggingFaceEmbeddings(model_name="all-mpnet-base-v2") # Example HuggingFace model
+    embedding_model = LangChainEmbeddingModel(hf_embeddings)
+
+    texts_to_embed = ["This is the first sentence.", "Here is another sentence."]
+    response = await embedding_model.create(values=texts_to_embed)
+
+    print("Original Texts:", response.values)
+    print("Embeddings (first vector, first 5 dimensions):", response.embeddings[0][:5]) # Print first 5 dimensions of the first embedding
+    print("Provider ID:", response.provider_id)
+    print("Model ID:", response.model_id) # Will indicate LangChain adapter usage
+
+async def directory_list_tool() -> None:
+    """Example demonstrating listing directory contents using LangChain's ListDirectoryTool."""
+    list_dir_tool = ListDirectoryTool()
+    tool = LangChainTool(list_dir_tool)
+    dir_path = str(pathlib.Path(__file__).parent.resolve())
+    response = await tool.run({"dir_path": dir_path})
+    print(f"Listing contents of {dir_path}:\n{response}")
+
+
+async def custom_structured_tool() -> None:
+    """Example of creating and using a custom structured tool via LangChain adapter."""
+    class RandomNumberToolArgsSchema(BaseModel):
+        min: int = Field(description="The minimum integer", ge=0)
+        max: int = Field(description="The maximum integer", ge=0)
+
+    def random_number_func(min: int, max: int) -> int:
+        """Generate a random integer between two given integers. The two given integers are inclusive."""
+        return random.randint(min, max)
+
+    generate_random_number = StructuredTool.from_function(
+        func=random_number_func,
+        # coroutine=async_random_number_func, <- if you want to specify an async method instead
+        name="GenerateRandomNumber",
+        description="Generate a random number between a minimum and maximum value.",
+        args_schema=RandomNumberToolArgsSchema,
+        return_direct=True,
+    )
+
+    tool = LangChainTool(generate_random_number)
+    response = await tool.run({"min": 1, "max": 10})
+
+    print(f"Your random number: {response}")
+
+
+async def main() -> None:
+    print("*" * 10, "Using HuggingFace Embedding Model via LangChain")
+    await huggingface_embedding_model()
+    print("*" * 10, "Using custom StructuredTool")
+    await custom_structured_tool()
+    print("*" * 10, "Using ListDirectoryTool")
+    await directory_list_tool()
+
+
+if __name__ == "__main__":
+    langchain.debug = False
+    try:
+        asyncio.run(main())
+    except FrameworkError as e:
+        traceback.print_exc()
+        sys.exit(e.explain())
+```
+
+**Source:** `/examples/backend/providers/langchain.py`
+
+To run this example, the optional packages:
+
+-   `langchain-core`
+-   `langchain-community`
+
+need to be installed.
+
+### Troubleshooting
+
+Common issues and their solutions:
+
+-   **Authentication errors**: Ensure all required environment variables are set correctly, especially API keys and provider-specific credentials.
+-   **Model not found**: Verify that the model ID is correct and available for the selected provider. Double-check the model name and provider compatibility.
+-   **Package dependencies**: For LangChain integration, make sure you have installed the necessary LangChain packages (`langchain-core`, `langchain-community`, and any provider-specific LangChain integrations like `langchain-openai`).
+
+## Embedding Model
+
+The `EmbedingModel` class represents an Embedding Model and can be initiated in one of the following ways.
+
+```typescript
+import { EmbedingModel } from "beeai-framework/backend/core";
+
+const model = await EmbedingModel.fromName("ibm/granite-embedding-107m-multilingual");
+console.log(model.providerId); // watsonx
+console.log(model.modelId); // ibm/granite-embedding-107m-multilingual
+```
+
+or you can always create the concrete provider's embedding model directly
+
+```typescript
+import { OpenAIEmbeddingModel } from "beeai-framework/adapters/openai/embedding";
+
+const model = new OpenAIEmbeddingModel(
+    "text-embedding-3-large",
+    {
+        dimensions: 512,
+        maxEmbeddingsPerCall: 5,
+    },
+    {
+        baseURL: "your_custom_endpoint",
+        compatibility: "compatible",
+        headers: {
+            CUSTOM_HEADER: "...",
+        },
+    },
+);
+```
+
+### Usage
+
+```typescript
+import { EmbeddingModel } from "beeai-framework/backend/core";
+
+const model = await EmbeddingModel.fromName("ollama:nomic-embed-text");
+const response = await model.create({
+    values: ["Hello world!", "Hello Bee!"],
+});
+console.log(response.values);
+console.log(response.embeddings);
+```
 
 
 
-## Contact
+## Conclusion
 
-For questions, discussions, or support, reach out to us via:
+**Congratulations!** You've learned how to turn text into powerful numerical representations, enabling AI to understand context, meaning, and relationships with accuracy. You're now capable of building intelligent applications that go beyond simple keyword matching and embrace semantic relevance.
 
-  * Email: [contact@ruslanmv.com](mailto:contact@ruslanmv.com)
-  * GitHub Discussions: [BeeAI Framework Discussions](https://www.google.com/url?sa=E&source=gmail&q=https://github.com/your-username/BeeAI-Framework-Practical-Guide/discussions)
-  * Community Forum: [BeeAI Community](https://www.google.com/url?sa=E&source=gmail&q=https://community.beeai.org)
+Throughout this BeeAI journey, you've developed critical skills:
 
-## Acknowledgements
+- **Prompt Templates**: Guiding language models precisely.
+- **ChatModel Interaction**: Creating dynamic conversations.
+- **Memory Handling**: Building context-aware interactions.
+- **Structured Outputs**: Delivering clear, structured information.
+- **ReAct Agents and Tools**: Developing reasoning agents that interact with the real world.
+- **Workflows**: Coordinating multi-agent systems for complex tasks.
+- **Backend Flexibility**: Deploying AI solutions across diverse platforms.
+- **Embedding Models**: Enhancing applications with semantic understanding.
 
-We sincerely thank our contributors, researchers, and supporters who have helped shape BeeAI. Special thanks to the open-source community for their invaluable feedback and contributions\!
+You're now equipped to architect advanced, intelligent systems that deeply understand and interact with the world. BeeAI Framework empowers you to turn your AI visions into reality.
+
+Join our thriving community to continue innovating and building the future of intelligent applications together.
+
+### Connect:
+
+- **Email**: [contact@ruslanmv.com](mailto:contact@ruslanmv.com)
+
+
+Special thanks to our contributors, researchers, supporters, and the open-source community!
