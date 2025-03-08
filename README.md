@@ -1,16 +1,74 @@
 # BeeAI Framework: Your Guide from Zero to Hero
 
-Welcome to the BeeAI Framework! This repository is your comprehensive guide to learning and using BeeAI, taking you from an absolute beginner to a proficient developer. In this extended tutorial we cover:
+Welcome to the BeeAI Framework tutorial! This comprehensive guide is meticulously crafted to take you from a complete beginner to a proficient developer, leveraging the powerful capabilities of the BeeAI Framework. Throughout this guide, you'll master key concepts and practical applications that will enable you to build intelligent, context-aware AI applications.
 
-- **Prompt Templates:** How to create and render templates for dynamic prompt generation.
-- **ChatModel Interaction:** How to interact with a language model using message-based inputs.
-- **Memory Handling:** How to build a conversation history for context.
-- **Structured Outputs:** Enforcing output formats with Pydantic schemas.
-- **System Prompts:** Guiding LLM behavior with system messages.
-- **ReAct Agents and Tools:** Building agents that can reason and act, including integration with external tools.
-- **Workflows:** Combining all of the above into a multi-step process, including adding memory and orchestration of multi-agent systems.
+Initially, you will learn foundational concepts like creating and rendering **Prompt Templates** to dynamically generate prompts tailored for specific interactions. Following that, you'll explore **ChatModel Interaction**, discovering effective ways to interact with language models through message-based communications. You'll then delve into advanced techniques of **Memory Handling**, essential for managing conversation histories and maintaining contextual coherence in AI interactions.
 
-Below you’ll find all the code examples along with explanations.
+Further, you'll gain expertise in enforcing **Structured Outputs** using robust Pydantic schemas, ensuring your AI's responses adhere to predefined formats, thus enhancing reliability and predictability. You will also understand how to utilize **System Prompts** to strategically guide the behavior of language models, optimizing their responses for your specific use cases.
+
+The tutorial advances into sophisticated areas such as developing **ReAct Agents and Tools**, which empowers your AI agents with reasoning and actionable capabilities through seamless integration of external tools. Finally, you will master **Workflows**, effectively orchestrating multiple steps and complex agent interactions into streamlined, dynamic processes, including the sophisticated management of multi-agent systems.
+
+Below is a comprehensive table of contents for easy navigation through your journey with the BeeAI Framework.
+
+## Table of Contents
+
+- [BeeAI Framework Basics](#beeai-framework-basics)
+  - [1. Prompt Templates](#1-prompt-templates)
+    - [Example: RAG Prompt Template](#example-rag-prompt-template)
+  - [2. More Complex Templates](#2-more-complex-templates)
+    - [Example: Template with a List of Search Results](#example-template-with-a-list-of-search-results)
+  - [3. The ChatModel](#3-the-chatmodel)
+    - [Example: Creating a User Message](#example-creating-a-user-message)
+    - [Example: Sending a Message to the ChatModel](#example-sending-a-message-to-the-chatmodel)
+  - [4. Memory Handling](#4-memory-handling)
+    - [Example: Storing and Retrieving Conversation History](#example-storing-and-retrieving-conversation-history)
+  - [5. Combining Templates and Messages](#5-combining-templates-and-messages)
+    - [Example: Rendering a Template and Sending as a Message](#example-rendering-a-template-and-sending-as-a-message)
+  - [6. Structured Outputs](#6-structured-outputs)
+    - [Example: Enforcing a Specific Output Format](#example-enforcing-a-specific-output-format)
+  - [7. System Prompts](#7-system-prompts)
+    - [Example: Using a System Message](#example-using-a-system-message)
+
+- [BeeAI ReAct Agents](#beeai-react-agents)
+  - [1. Basic ReAct Agent](#1-basic-react-agent)
+    - [Example: Setting Up a Basic ReAct Agent](#example-setting-up-a-basic-react-agent)
+  - [2. Using Tools with the Agent](#2-using-tools-with-the-agent)
+    - [Example: Using a Built-In Weather Tool](#example-using-a-built-in-weather-tool)
+  - [3. Imported Tools](#3-imported-tools)
+    - [Example: Long-Form Integration with Wikipedia](#example-long-form-integration-with-wikipedia)
+    - [Example: Shorter Form Using the `@tool` Decorator](#example-shorter-form-using-the-tool-decorator)
+
+- [BeeAI Workflows](#beeai-workflows)
+  - [Overview](#overview)
+  - [Core Concepts](#core-concepts)
+    - [State](#state)
+    - [Steps](#steps)
+    - [Transitions](#transitions)
+  - [Basic Usage](#basic-usage)
+    - [Simple Workflow](#simple-workflow)
+    - [Multi-Step Workflow](#multi-step-workflow)
+  - [Advanced Features](#advanced-features)
+    - [Workflow Nesting](#workflow-nesting)
+    - [Multi-Agent Workflows: Orchestration with BeeAI](#multi-agent-workflows-orchestration-with-beeai)
+      - [Orchestration with Watsonx.ai Backend](#orchestration-with-watsonxai-backend)
+    - [Memory in Workflows](#memory-in-workflows)
+
+- [Backend](#backend)
+  - [Overview](#overview-1)
+  - [Supported Providers](#supported-providers)
+  - [Backend Initialization](#backend-initialization)
+  - [Chat Model](#chat-model)
+    - [Chat Model Configuration](#chat-model-configuration)
+    - [Text Generation](#text-generation)
+    - [Streaming Responses](#streaming-responses)
+    - [Structured Generation](#structured-generation)
+    - [Tool Calling](#tool-calling)
+
+- [Embedding Model](#embedding-model)
+  - [Embedding Model Initialization](#embedding-model-initialization)
+  - [Embedding Model Usage](#embedding-model-usage)
+
+Dive into the foundational concepts of the BeeAI Framework, progressively building your knowledge and practical skills to confidently create intelligent, context-aware applications.
 
 ---
 
