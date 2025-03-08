@@ -413,7 +413,7 @@ result: BeeRunOutput = await agent.run(
 
 ---
 
-## BeeAI Workflows (Experimental)
+## BeeAI Workflows 
 
 Workflows allow you to combine what you’ve learned into a coherent multi-step process. A workflow is defined by a state (a Pydantic model) and steps (Python functions) that update the state and determine the next step. Workflows in BeeAI provide a flexible and extensible component for managing and executing structured sequences of tasks, especially useful for orchestration of complex agent behaviors and multi-agent systems.
 
