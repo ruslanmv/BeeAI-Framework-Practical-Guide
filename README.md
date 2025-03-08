@@ -101,23 +101,17 @@ Follow the instructions for your operating system.
 
 4. Create Virtual Environment:
 
-   Bash
-
    ```
    python -m venv venv
    ```
 
 5. Activate Virtual Environment:
 
-   Bash
-
    ```
    venv\Scripts\activate
    ```
 
 6. Install BeeAI Framework & Dependencies:
-
-   Bash
 
    ```bash
    pip install beeai-framework
@@ -132,15 +126,11 @@ Follow the instructions for your operating system.
 
 8. Start Ollama Server: Open a new Anaconda Prompt and run:
 
-   Bash
-
    ```bash
    ollama serve &
    ```
 
 9. Download Ollama Model:
-
-   Bash
 
    ```
    ollama pull granite3.1-dense:8b
