@@ -891,23 +891,6 @@ This pattern demonstrates:
 
 ## ⚙️ Backend
 
-## Table of Contents
-- [Overview](#overview)
-- [Supported Providers](#supported-providers)
-- [Backend Initialization](#backend-initialization)
-- [Chat Model](#chat-model)
-  - [Chat Model Configuration](#chat-model-configuration)
-  - [Text Generation](#text-generation)
-  - [Streaming Responses](#streaming-responses)
-  - [Structured Generation](#structured-generation)
-  - [Tool Calling](#tool-calling)
-- [Embedding Model](#embedding-model)
-  - [Embedding Model Configuration](#embedding-model-configuration)
-  - [Embedding Model Usage](#embedding-model-usage)
-- [Troubleshooting](#troubleshooting)
-- [Examples](#examples)
----
-
 ## Overview
 
 Backend is an umbrella module that encapsulates a unified way to work with the following functionalities:
