@@ -70,13 +70,12 @@ Below is a comprehensive table of contents for easy navigation through your jour
 
 Dive into the foundational concepts of the BeeAI Framework, progressively building your knowledge and practical skills to confidently create intelligent, context-aware applications.
 
----
+
 
 ## BeeAI Framework Basics
 
 These examples demonstrate the fundamental usage patterns of BeeAI in Python. They progressively increase in complexity, providing a well-rounded overview of the framework.
 
----
 
 ### 1. Prompt Templates
 
@@ -927,8 +926,7 @@ The following table depicts supported providers. Each provider requires specific
 
 > [!TIP]
 >
-> If you don't see your provider raise an issue [here](https://github.com/i-am-bee/beeai-framework/discussions). Meanwhile, you can use [Ollama adapter](/python/examples/backend/providers/ollama.py).
-
+> If you don't see your provider raise an issue [here](https://github.com/i-am-bee/beeai-framework/discussions).
 ---
 
 ### Backend initialization
@@ -1077,7 +1075,7 @@ if __name__ == "__main__":
         sys.exit(e.explain())
 ```
 
-All providers examples can be found in [examples/backend/providers](/examples/backend/providers).
+
 
 ---
 
@@ -1496,8 +1494,6 @@ const response = await model.create({
 console.log(response.values);
 console.log(response.embeddings);
 ```
-
-
 
 ## Conclusion
 
